@@ -16,7 +16,7 @@ class Token:
 
 TOKENS = [
     ("PAREN",  "\(|\)"),
-    ("NUMBER", "[0-9]*(\.[0-9]+)?"),
+    ("NUMBER", "-?[0-9]+(\.[0-9]+)?"),
     ("STRING", "\"[^\"]*\""),
     ("BOOL",   "(true)|(false)"),
     ("IDENT",  "[a-zA-Z][0-9_\-a-zA-Z]*"),
@@ -27,8 +27,10 @@ TOKENS = [
 def lex(filename):
     source = open(filename, "r")
     tokens = []
-    linenbr = 1
+    linenbr = 0
     for line in source:
+        linenbr += 1
+
         # skip comments
         if line[0] == "#":
             continue
@@ -45,8 +47,6 @@ def lex(filename):
                         first = first[1:-1] # remove "
                     tokens.append(Token(token[0], first, Position(linenbr, pivot)))
                     break
-        
-        linenbr += 1
                 
     return tokens
 

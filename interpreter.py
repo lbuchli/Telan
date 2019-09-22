@@ -21,12 +21,12 @@ class Command:
         self.action = action   # what to do when the command is called (gets passed the arguments)
     
     # call the command if arguments match the commands constraints
-    def call(self, arguments):
+    def call(self, arguments, local):
         # check argument count
         if len(arguments) < self.minargs:
             return self._err(arguments[-1], "Expected at least " + str(self.minargs) + " arguments")
         if self.maxargs != -1 and len(arguments) > self.maxargs:
-            return self._err(arguments[self.maxargs], "Expected at most " + str(self.maxargs) + "arguments")
+            return self._err(arguments[self.maxargs], "Expected at most " + str(self.maxargs) + " arguments")
         
         # check argument type
         arg_index = 0
@@ -39,7 +39,8 @@ class Command:
                 return self._err(arguments[arg_index], "Expected argument of type " + self.types[-1])
         
         # all tests passed, let's call the command
-        return self.action(arguments)
+        result = self.action(arguments, local)
+        return lexer.Token("OTHER", "NULL", arguments[0].position) if result == None else result
         
     # prints an error to the screen and returns an error token
     def _err(self, token, message):
@@ -64,8 +65,8 @@ class Command:
 
 variables = {}
 
-def interpret(root):
-    command = interpret(root.children[0]) if isinstance(root.children[0], parser.ASTNode) else root.children[0]
+def interpret(root, local):
+    command = interpret(root.children[0], local) if isinstance(root.children[0], parser.ASTNode) else root.children[0]
     arguments = []
     leave_next = False
     for x in root.children[1:]:
@@ -79,16 +80,29 @@ def interpret(root):
             if leave_next:
                 arguments.append(x)
             else:
-                arguments.append(interpret(x))
+                arguments.append(interpret(x, local))
         else:
             print("PARSER: " + x)
             return null
     
+    # predefined functions
     if command.value in COMMANDS:
-        return COMMANDS[command.value].call(arguments)
+        return COMMANDS[command.value].call(arguments, local)
+    # userdefined functions
+    elif command.value in variables and isinstance(variables[command.value], parser.ASTNode):
+        func = variables[command.value].children
+        minargs = int(func[0].value)
+        maxargs = int(func[1].value)
+        # filter out whitespace
+        rawtypes = filter(lambda elem: elem.ttype != "WHITE", func[2].children)
+        types = [token.value for token in rawtypes]
+        def code(arguments, local):
+            return interpret(func[3], arguments)
+        return Command(code, minargs, maxargs, types).call(arguments, local)
+    # no function
     else:
         print_err(command.position, "Unknown command: " + command.value)
-        return Token("OTHER", "ERROR", command.position)
+        return lexer.Token("OTHER", "ERROR", command.position)
 
 
 ###############################################################################
@@ -101,45 +115,48 @@ def true(pos):
 def false(pos):
     return lexer.Token("BOOL", "false", pos)
 
+def null(pos):
+    return lexer.Token("OTHER", "NULL", pos)
+
 
 ###############################################################################
 #                                   Commands                                  #
 ###############################################################################
                 
-def add(args):
+def add(args, _):
     result = 0.0
     for arg in args:
         result += float(arg.value)
     return lexer.Token("NUMBER", str(result), args[0].position)
 
-def sub(args):
+def sub(args, _):
     result = float(args[0].value)
     for arg in args[1:]:
         result -= float(arg.value)
     return lexer.Token("NUMBER", str(result), args[0].position)
 
-def mul(args):
+def mul(args, _):
     result = 1.0
     for arg in args:
         result *= float(arg.value)
     return lexer.Token("NUMBER", str(result), args[0].position)
 
-def div(args):
+def div(args, _):
     result = float(args[0].value)
     for arg in args[1:]:
         result /= float(arg.value)
     return lexer.Token("NUMBER", str(result), args[0].position)
 
-def ifelse(args):
+def ifelse(args, _):
     if args[0].value == "true":
         return args[1]
     else:
         return args[2]
 
-def last(args):
+def last(args, _):
     return args[-1]
 
-def eq(args):
+def eq(args, _):
     if args[0].ttype == args[1].ttype:
         if args[0].ttype == "NUMBER":
             if float(args[0].value) == float(args[1].value):
@@ -154,63 +171,72 @@ def eq(args):
     else:
         return false(args[0].position)
 
-def gt(args):
+def gt(args, _):
     if float(args[0].value) > float(args[1].value):
         return true(args[0].position)
     else:
         return false(args[0].position)
 
-def lt(args):
+def lt(args, _):
     if float(args[0].value) < float(args[1].value):
         return true(args[0].position)
     else:
         return false(args[0].position)
 
-def lnot(args):
+def lnot(args, _):
     return false(args[0].position) if args[0].value == "true" else true(args[0].position)
 
-def land(args):
+def land(args, _):
     for arg in args:
         if arg.value != "true":
             return false(arg.position)
     return true(args[0].position)
 
-def lor(args):
+def lor(args, _):
     for arg in args:
         if arg.value == "true":
             return true(arg.position)
     return false(args[0].position)
 
-def io_input(args):
+def io_input(args, _):
     return lexer.Token(args[0].value, input(args[1].value if len(args) > 1 else ""), args[0].position)
 
-def io_print(args):
+def io_print(args, _):
     for arg in args:
-        print(arg.value),
+        print(arg.value, end='')
+    print()
 
-def v_set(args):
+def v_set(args, _):
     variables[args[0].value] = args[1]
 
-def v_load(args):
-    if args[0].value in variables:
-        return variables[args[0]].value
-    else:
-        return lexer.Token("OTHER", "NULL", args[0].position)
+def v_setf(args, _):
+    variables[args[0].value] = parser.ASTNode(args[1:], args[0].position)
 
-def c_while(args):
+def v_load(args, _):
+    if args[0].value in variables:
+        return variables[args[0].value]
+
+def v_get(args, local):
+    index = int(args[0].value)
+    if len(local) > index:
+        return local[index]
+    else:
+        return null(args[0].position)
+
+def c_while(args, local):
     while True:
-        result = interpret(args[0])
+        result = interpret(args[0], local)
         if result.ttype == "BOOL" and result.value != "true":
             break
         for arg in args[1:]:
-            interpret(arg)
+            interpret(arg, local)
 
-def c_exec(args):
+def c_exec(args, _):
     for arg in args[:-1]:
         interpret(arg)
     return interpret(args[-1])
 
-def concat(args):
+def concat(args, _):
     result = ""
     for arg in args:
         result += arg.value
@@ -237,7 +263,9 @@ COMMANDS = {
     "input":  Command(io_input, 1, 2, ["STRING"]),
     "print":  Command(io_print, 1, -1, ["ANY"]),
     "set":    Command(v_set, 2, 2, ["ANY", "ANY/AST"]),
-    "load":   Command(v_load, 2, 2, ["ANY"]),
+    "setf":   Command(v_setf, 5, 5, ["ANY", "NUMBER", "NUMBER", "AST", "AST"]),
+    "get":    Command(v_get, 1, 1, ["NUMBER"]), 
+    "load":   Command(v_load, 1, 1, ["ANY"]),
     "while":  Command(c_while, 2, -1, ["AST"]),
     "exec":   Command(c_exec, 1, -1, ["AST"]),
     "concat": Command(concat, 1, -1, ["ANY"])
