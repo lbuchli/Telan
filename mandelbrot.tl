@@ -53,11 +53,11 @@
        '(set c1 (load c1temp))
        '(set iter (+ 1 (load iter)))
     )
-    (ifelse (gt (load iter) (load max_iter))           "█"
-    (ifelse (gt (load iter) (* 0.1 (load max_iter)))   "▓"
-    (ifelse (gt (load iter) (* 0.05 (load max_iter)))  "▒"
-    (ifelse (gt (load iter) (* 0.025 (load max_iter))) "░"
-                                                       " "
+    (ifelse (gt (load iter) (load max_iter))           "██"
+    (ifelse (gt (load iter) (* 0.1 (load max_iter)))   "▓▓"
+    (ifelse (gt (load iter) (* 0.05 (load max_iter)))  "▒▒"
+    (ifelse (gt (load iter) (* 0.025 (load max_iter))) "░░"
+                                                       "  "
     ))))
 ))
 
